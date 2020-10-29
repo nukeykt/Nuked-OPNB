@@ -34,6 +34,11 @@ enum {
     eg_num_release = 3
 };
 
+enum {
+    clock_fm_1 = 0,
+    clock_fm_2,
+};
+
 /* logsin table */
 static const uint16_t logsinrom[256] = {
     0x859, 0x6c3, 0x607, 0x58b, 0x52e, 0x4e4, 0x4a6, 0x471,
@@ -214,7 +219,65 @@ static const uint32_t fm_algorithm[4][6][8] = {
     }
 };
 
+void OPNB_FMClock1(opnb_fm_t *chip)
+{
+}
+
+void OPNB_FMClock2(opnb_fm_t *chip)
+{
+}
+
 void OPNB_Clock(opnb_t *chip)
 {
-    chip->cycles = (chip->cycles + 1) % 12;
+    uint32_t cycle;
+    for (cycle = 0; cycle < 12; cycle++)
+    {
+        if (chip->cycles & (1 << cycle))
+        {
+            // FM clock
+            switch (cycle % 6)
+            {
+            case 2: // rising
+            case 3:
+                if (!(chip->clock_state & clock_fm_1))
+                {
+                    OPNB_FMClock1(chip->fm);
+                    chip->clock_state |= clock_fm_1;
+                }
+                break;
+            case 4: // falling
+                chip->clock_state &= ~clock_fm_1;
+                break;
+            case 0: // rising
+            case 5:
+            case 3:
+                if (!(chip->clock_state & clock_fm_2))
+                {
+                    OPNB_FMClock2(chip->fm);
+                    chip->clock_state |= clock_fm_2;
+                }
+                break;
+            case 1: // falling
+                chip->clock_state &= ~clock_fm_2;
+                break;
+            default:
+                break;
+            }
+        }
+    }
+
+    // Cycle one-hot
+    chip->cycles <<= 1;
+    if ((chip->cycles & 0xffe) == 0)
+    {
+        chip->cycles |= 1;
+    }
+    chip->ic2 <<= 1;
+    if ((chip->ic_sr & 1) && !(chip->ic_sr & (1<<18)))
+    {
+        chip->cycles &= ~1;
+        chip->ic2 |= 1;
+    }
+    chip->ic_sr <<= 1;
+    chip->ic_sr |= chip->ic;
 }

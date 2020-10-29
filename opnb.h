@@ -29,7 +29,17 @@
 #include <stdint.h>
 
 typedef struct {
+    uint32_t fmcycles;
+    uint32_t fmstate;
+} opnb_fm_t;
+
+typedef struct {
+    opnb_fm_t fm;
+    uint32_t clock_state;
     uint32_t cycles;
+    uint8_t ic;
+    uint32_t ic_sr;
+    uint32_t ic2;
 } opnb_t;
 
 #endif
