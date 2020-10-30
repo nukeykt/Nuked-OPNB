@@ -219,17 +219,215 @@ static const uint32_t fm_algorithm[4][6][8] = {
     }
 };
 
-void OPNB_FMClock1(opnb_fm_t *chip)
+static void OPNB_FMDoIO1(opnb_t *chip)
 {
+    chip->write_d_en = (chip->write_d & 20) == 4;
+    chip->write_a_en = (chip->write_a & 20) == 4;
+    chip->write_d <<= 1;
+    chip->write_a <<= 1;
 }
 
-void OPNB_FMClock2(opnb_fm_t *chip)
+static void OPNB_FMDoIO2(opnb_t *chip)
 {
+    chip->write_d <<= 1;
+    chip->write_a <<= 1;
+}
+
+static void OPNB_DoRegWrite(opnb_t *chip)
+{
+    uint32_t i;
+    uint16_t bus, businv, addr;
+
+    if (chip->ic_latch & 2)
+    {
+        bus = 0;
+        businv = (chip->write_data ^ 255) & 255;
+    }
+    else
+    {
+        bus = chip->write_data & 255;
+        businv = bus ^ 255;
+    }
+    bus |= chip->write_data & 256;
+    /* Data */
+    if (chip->write_d_en)
+    {
+        if ((bus & 256) == 0)
+        {
+            if (chip->write_mode_1c)
+            {
+                chip->mode_1c = bus & 191;
+            }
+            if (chip->write_mode_27) /* CSM, Timer control */
+            {
+                chip->mode_ch3 = (bus & 0xc0) >> 6;
+                chip->mode_csm = chip->mode_ch3 == 2;
+                chip->timer_a_load = bus & 0x01;
+                chip->timer_a_enable = (bus >> 2) & 0x01;
+                chip->timer_a_reset = (bus >> 4) & 0x01;
+                chip->timer_b_load = (bus >> 1) & 0x01;
+                chip->timer_b_enable = (bus >> 3) & 0x01;
+                chip->timer_b_reset = (bus >> 5) & 0x01;
+            }
+            if (chip->write_mode_25) /* Timer A */
+            {
+                chip->timer_a_reg &= 0x3fc;
+                chip->timer_a_reg |= bus & 0x03;
+            }
+            if (chip->write_mode_24)
+            {
+                chip->timer_a_reg &= 0x03;
+                chip->timer_a_reg |= (bus & 0xff) << 2;
+            }
+            if (chip->write_mode_21) /* LSI test */
+            {
+                chip->mode_test = bus & 253;
+            }
+            if (chip->write_mode_28) /* Key on/off */
+            {
+                for (i = 0; i < 4; i++)
+                {
+                    chip->mode_kon_operator[i] = (bus >> (4 + i)) & 0x01;
+                }
+                if ((bus & 0x03) == 0x03)
+                {
+                    /* Invalid address */
+                    chip->mode_kon_channel = 0xff;
+                }
+                else
+                {
+                    chip->mode_kon_channel = (bus & 0x03) + ((bus >> 2) & 1) * 3;
+                }
+            }
+            if (chip->write_mode_26) /* Timer B */
+            {
+                chip->timer_b_reg = bus & 255;
+            }
+            if (chip->write_mode_22) /* LFO control */
+            {
+                if ((bus >> 3) & 0x01)
+                {
+                    chip->lfo_en = 0x7f;
+                }
+                else
+                {
+                    chip->lfo_en = 0;
+                }
+                chip->lfo_freq = bus & 0x07;
+            }
+            if (chip->write_mode_02) /* ADPCM LSI Test */
+            {
+                chip->mode_test2 = bus & 184;
+            }
+        }
+        if (chip->write_fm_address)
+        {
+            chip->fm_data = bus;
+        }
+    }
+    if (chip->write_a_en)
+    {
+        chip->write_fm_data = 0;
+    }
+    if (chip->write_fm_address && chip->write_d_en)
+    {
+        chip->write_fm_data = 1;
+    }
+    /* Address */
+    if (chip->write_a_en)
+    {
+        chip->write_fm_address = (bus & 0xf0) != 0;
+        if (chip->write_fm_address)
+        {
+            chip->fm_address = bus & 0x1ff;
+        }
+        if (chip->ic_latch & 2)
+        {
+            chip->write_mode_1c = (bus & 0x100) == 0 && (businv & 0x1c) == 0;
+            chip->write_mode_27 = (bus & 0x100) == 0 && (businv & 0x27) == 0;
+            chip->write_mode_25 = (bus & 0x100) == 0 && (businv & 0x25) == 0;
+            chip->write_mode_24 = (bus & 0x100) == 0 && (businv & 0x24) == 0;
+            chip->write_mode_21 = (bus & 0x100) == 0 && (businv & 0x21) == 0;
+            chip->write_mode_28 = (bus & 0x100) == 0 && (businv & 0x28) == 0;
+            chip->write_mode_26 = (bus & 0x100) == 0 && (businv & 0x26) == 0;
+            chip->write_mode_22 = (bus & 0x100) == 0 && (businv & 0x22) == 0;
+            chip->write_mode_02 = (bus & 0x100) == 0 && (businv & 0x02) == 0;
+        }
+        else
+        {
+            chip->write_mode_1c = bus == 0x1c;
+            chip->write_mode_27 = bus == 0x27;
+            chip->write_mode_25 = bus == 0x25;
+            chip->write_mode_24 = bus == 0x24;
+            chip->write_mode_21 = bus == 0x21;
+            chip->write_mode_28 = bus == 0x28;
+            chip->write_mode_26 = bus == 0x26;
+            chip->write_mode_22 = bus == 0x22;
+            chip->write_mode_02 = bus == 0x02;
+        }
+    }
+    if (chip->ic)
+    {
+        chip->mode_1c = 0;
+        chip->mode_ch3 = 0;
+        chip->mode_csm = 0;
+        chip->timer_a_load = 0;
+        chip->timer_a_enable = 0;
+        chip->timer_a_reset = 0;
+        chip->timer_b_load = 0;
+        chip->timer_b_enable = 0;
+        chip->timer_b_reset = 0;
+        chip->timer_a_reg = 0;
+        chip->mode_test = 0;
+        chip->mode_kon_operator[0] = 0;
+        chip->mode_kon_operator[1] = 0;
+        chip->mode_kon_operator[2] = 0;
+        chip->mode_kon_operator[3] = 0;
+        chip->mode_kon_channel = 0;
+        chip->timer_b_reg = 0;
+        chip->lfo_en = 0;
+        chip->lfo_freq = 0;
+        chip->mode_test2 = 0;
+        chip->fm_address = 0;
+        chip->fm_data = 0;
+    }
+}
+
+static void OPNB_FMClock1(opnb_t *chip)
+{
+    chip->ic_latch |= chip->ic;
+    OPNB_FMDoIO1(chip);
+    OPNB_DoRegWrite(chip);
+}
+
+static void OPNB_FMClock2(opnb_t *chip)
+{
+    chip->ic_latch <<= 1;
+    OPNB_FMDoIO2(chip);
+    chip->fmcycles = (chip->fmcycles + 1) % 24;
+    chip->fmstate = (chip->fmstate + 1) % 24;
+}
+
+static uint8_t OPNB_ReadBus(opnb_t *chip, uint32_t ssgread)
+{
+    if (chip->ic_latch & 2)
+    {
+        return 0;
+    }
+    if (ssgread)
+    {
+        return 0; // TODO:
+    }
+    return chip->write_data & 255;
 }
 
 void OPNB_Clock(opnb_t *chip)
 {
     uint32_t cycle;
+    if (chip->ic)
+    {
+        chip->write_data = 0;
+    }
     for (cycle = 0; cycle < 12; cycle++)
     {
         if (chip->cycles & (1 << cycle))
@@ -241,7 +439,7 @@ void OPNB_Clock(opnb_t *chip)
             case 3:
                 if (!(chip->clock_state & clock_fm_1))
                 {
-                    OPNB_FMClock1(chip->fm);
+                    OPNB_FMClock1(chip);
                     chip->clock_state |= clock_fm_1;
                 }
                 break;
@@ -253,7 +451,7 @@ void OPNB_Clock(opnb_t *chip)
             case 3:
                 if (!(chip->clock_state & clock_fm_2))
                 {
-                    OPNB_FMClock2(chip->fm);
+                    OPNB_FMClock2(chip);
                     chip->clock_state |= clock_fm_2;
                 }
                 break;
@@ -280,4 +478,38 @@ void OPNB_Clock(opnb_t *chip)
     }
     chip->ic_sr <<= 1;
     chip->ic_sr |= chip->ic;
+}
+
+void OPNB_Write(opnb_t *chip, uint32_t port, uint8_t data)
+{
+    port &= 3;
+    chip->write_data = ((port << 7) & 0x100) | data;
+    if (port & 1)
+    {
+        if (!(chip->write_d & 4))
+        {
+            chip->write_d |= 1;
+        }
+    }
+    else
+    {
+        if (!(chip->write_a & 4))
+        {
+            chip->write_a |= 1;
+        }
+    }
+}
+
+uint8_t OPNB_Read(opnb_t *chip, uint32_t port)
+{
+    uint8_t ret = 0;
+    switch (port & 3)
+    {
+    case 1:
+        ret = OPNB_ReadBus(chip, 1);
+        break;
+    default:
+        break;
+    }
+    return ret;
 }

@@ -28,6 +28,7 @@
 
 #include <stdint.h>
 
+
 typedef struct {
     uint32_t fmcycles;
     uint32_t fmstate;
@@ -40,6 +41,44 @@ typedef struct {
     uint8_t ic;
     uint32_t ic_sr;
     uint32_t ic2;
+    uint32_t ic_latch;
+
+    uint8_t fm_data;
+    uint16_t fm_address;
+    uint16_t timer_a_reg;
+    uint8_t timer_b_reg;
+    uint8_t mode_1c;
+    uint8_t mode_ch3;
+    uint8_t mode_csm;
+    uint8_t mode_test;
+    uint8_t mode_test2;
+    uint8_t mode_kon_operator[4];
+    uint8_t mode_kon_channel;
+    uint8_t lfo_en;
+    uint8_t lfo_freq;
+    uint8_t timer_a_load;
+    uint8_t timer_a_enable;
+    uint8_t timer_a_reset;
+    uint8_t timer_b_load;
+    uint8_t timer_b_enable;
+    uint8_t timer_b_reset;
+    uint8_t write_fm_address;
+    uint8_t write_fm_data;
+    uint8_t write_mode_1c;
+    uint8_t write_mode_27;
+    uint8_t write_mode_25;
+    uint8_t write_mode_24;
+    uint8_t write_mode_21;
+    uint8_t write_mode_28;
+    uint8_t write_mode_26;
+    uint8_t write_mode_22;
+    uint8_t write_mode_02;
+    uint8_t write_d;
+    uint8_t write_d_en;
+    uint8_t write_a;
+    uint8_t write_a_en;
+    uint16_t write_data;
+    uint8_t write_ssg;
 } opnb_t;
 
 #endif
