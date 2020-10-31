@@ -30,12 +30,6 @@
 
 
 typedef struct {
-    uint32_t fmcycles;
-    uint32_t fmstate;
-} opnb_fm_t;
-
-typedef struct {
-    opnb_fm_t fm;
     uint32_t clock_state;
     uint32_t cycles;
     uint8_t ic;
@@ -43,6 +37,10 @@ typedef struct {
     uint32_t ic2;
     uint32_t ic_latch;
 
+    uint32_t fmcycles;
+    uint32_t fmstate_l, fmstate_h;
+    uint32_t slot_counter_l, slot_counter_h;
+    uint32_t fmcycle[24];
     uint8_t fm_data;
     uint16_t fm_address;
     uint16_t timer_a_reg;
@@ -79,6 +77,31 @@ typedef struct {
     uint8_t write_a_en;
     uint16_t write_data;
     uint8_t write_ssg;
+    uint8_t fm_multi[2][12];
+    uint8_t fm_dt[2][12];
+    uint8_t fm_tl[2][12];
+    uint8_t fm_ar[2][12];
+    uint8_t fm_ks[2][12];
+    uint8_t fm_ar[2][12];
+    uint8_t fm_ks[2][12];
+    uint8_t fm_dr[2][12];
+    uint8_t fm_am[2][12];
+    uint8_t fm_sr[2][12];
+    uint8_t fm_rr[2][12];
+    uint8_t fm_sl[2][12];
+    uint8_t fm_ssg_eg[2][12];
+    uint8_t fm_reg_a4;
+    uint8_t fm_reg_ac;
+    uint16_t fm_fnum[6];
+    uint8_t fm_block[6];
+    uint16_t fm_fnum_3ch[6];
+    uint8_t fm_block_3ch[6];
+    uint8_t fm_connect[6];
+    uint8_t fm_fb[6];
+    uint8_t fm_pms[6];
+    uint8_t fm_ams[6];
+    uint8_t fm_pan_l[6];
+    uint8_t fm_pan_r[6];
 } opnb_t;
 
 #endif

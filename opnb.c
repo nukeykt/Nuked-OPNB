@@ -154,28 +154,23 @@ static const uint32_t pg_lfo_sh2[8][8] = {
 };
 
 /* Address decoder */
-static const uint32_t op_offset[12] = {
+static const uint32_t slot_map[16] = {
     0x000, /* Ch1 OP1/OP2 */
     0x001, /* Ch2 OP1/OP2 */
     0x002, /* Ch3 OP1/OP2 */
+    0x003, /* Illegal */
     0x100, /* Ch4 OP1/OP2 */
     0x101, /* Ch5 OP1/OP2 */
     0x102, /* Ch6 OP1/OP2 */
+    0x103, /* Illegal */
     0x004, /* Ch1 OP3/OP4 */
     0x005, /* Ch2 OP3/OP4 */
     0x006, /* Ch3 OP3/OP4 */
+    0x007, /* Illegal */
     0x104, /* Ch4 OP3/OP4 */
     0x105, /* Ch5 OP3/OP4 */
     0x106  /* Ch6 OP3/OP4 */
-};
-
-static const uint32_t ch_offset[6] = {
-    0x000, /* Ch1 */
-    0x001, /* Ch2 */
-    0x002, /* Ch3 */
-    0x100, /* Ch4 */
-    0x101, /* Ch5 */
-    0x102  /* Ch6 */
+    0x107, /* Illegal */
 };
 
 /* LFO */
@@ -235,7 +230,7 @@ static void OPNB_FMDoIO2(opnb_t *chip)
 
 static void OPNB_DoRegWrite(opnb_t *chip)
 {
-    uint32_t i;
+    uint32_t i, bank, slot, channel;
     uint16_t bus, businv, addr;
 
     if (chip->ic_latch & 2)
@@ -249,6 +244,76 @@ static void OPNB_DoRegWrite(opnb_t *chip)
         businv = bus ^ 255;
     }
     bus |= chip->write_data & 256;
+    /* Update registers */
+    if (chip->write_fm_data)
+    {
+        /* Slot */
+        if (slot_map[chip->slot_counter_h * 4 + chip->slot_counter_l] == (chip->fm_address & 0x107))
+        {
+            slot = chip->fmcycles % 12;
+            bank = (chip->fm_address & 8) != 0;
+            switch (chip->fm_address & 0xf0)
+            {
+            case 0x30: /* DT, MULTI */
+                chip->fm_multi[bank][slot] = chip->fm_data & 0x0f;
+                chip->fm_dt[bank][slot] = (chip->fm_data >> 4) & 0x07;
+                break;
+            case 0x40: /* TL */
+                chip->fm_tl[bank][slot] = chip->fm_data & 0x7f;
+                break;
+            case 0x50: /* KS, AR */
+                chip->fm_ar[bank][slot] = chip->fm_data & 0x1f;
+                chip->fm_ks[bank][slot] = (chip->fm_data >> 6) & 0x03;
+                break;
+            case 0x60: /* AM, DR */
+                chip->fm_dr[bank][slot] = chip->fm_data & 0x1f;
+                chip->fm_am[bank][slot] = (chip->fm_data >> 7) & 0x01;
+                break;
+            case 0x70: /* SR */
+                chip->fm_sr[bank][slot] = chip->fm_data & 0x1f;
+                break;
+            case 0x80: /* SL, RR */
+                chip->fm_rr[bank][slot] = chip->fm_data & 0x0f;
+                chip->fm_sl[bank][slot] = (chip->fm_data >> 4) & 0x0f;
+                break;
+            case 0x90: /* SSG-EG */
+                chip->fm_ssg_eg[bank][slot] = chip->fm_data & 0x0f;
+                break;
+            }
+        }
+        /* Channel */
+        if (slot_map[(chip->slot_counter_h & 1) * 4 + chip->slot_counter_l] == (chip->fm_address & 0x103))
+        {
+            channel = chip->fmcycles % 6;
+            switch (chip->fm_address & 0xfc)
+            {
+            case 0xa0:
+                chip->fm_fnum[channel] = (chip->fm_data & 0xff) | ((chip->fm_reg_a4 & 0x07) << 8);
+                chip->fm_block[channel] = (chip->fm_reg_a4 >> 3) & 0x07;
+                break;
+            case 0xa4:
+                chip->fm_reg_a4 = chip->fm_data & 0x3f;
+                break;
+            case 0xa8:
+                chip->fm_fnum_3ch[channel] = (chip->fm_data & 0xff) | ((chip->fm_reg_ac & 0x07) << 8);
+                chip->fm_block_3ch[channel] = (chip->fm_reg_ac >> 3) & 0x07;
+                break;
+            case 0xac:
+                chip->fm_reg_ac = chip->fm_data & 0x3f;
+                break;
+            case 0xb0:
+                chip->fm_connect[channel] = chip->fm_data & 0x07;
+                chip->fm_fb[channel] = (chip->fm_data >> 3) & 0x07;
+                break;
+            case 0xb4:
+                chip->fm_pms[channel] = chip->fm_data & 0x07;
+                chip->fm_ams[channel] = (chip->fm_data >> 4) & 0x07;
+                chip->fm_pan_l[channel] = (chip->fm_data >> 7) & 0x01;
+                chip->fm_pan_r[channel] = (chip->fm_data >> 6) & 0x01;
+                break;
+            }
+        }
+    }
     /* Data */
     if (chip->write_d_en)
     {
@@ -289,15 +354,7 @@ static void OPNB_DoRegWrite(opnb_t *chip)
                 {
                     chip->mode_kon_operator[i] = (bus >> (4 + i)) & 0x01;
                 }
-                if ((bus & 0x03) == 0x03)
-                {
-                    /* Invalid address */
-                    chip->mode_kon_channel = 0xff;
-                }
-                else
-                {
-                    chip->mode_kon_channel = (bus & 0x03) + ((bus >> 2) & 1) * 3;
-                }
+                chip->mode_kon_channel = bus & 0x07;
             }
             if (chip->write_mode_26) /* Timer B */
             {
@@ -366,6 +423,20 @@ static void OPNB_DoRegWrite(opnb_t *chip)
             chip->write_mode_02 = bus == 0x02;
         }
     }
+    if (chip->slot_counter_l & 2)
+    {
+        chip->slot_counter_h = (chip->slot_counter_h + 1) & 3;
+        chip->slot_counter_l = 0;
+    }
+    else
+    {
+        chip->slot_counter_l++;
+    }
+    if (chip->fmcycles[22] & 2)
+    {
+        chip->slot_counter_h = 0;
+        chip->slot_counter_l = 0;
+    }
     if (chip->ic)
     {
         chip->mode_1c = 0;
@@ -390,7 +461,69 @@ static void OPNB_DoRegWrite(opnb_t *chip)
         chip->mode_test2 = 0;
         chip->fm_address = 0;
         chip->fm_data = 0;
+        chip->slot_counter_h = 0;
+        chip->slot_counter_l = 0;
+        slot = chip->fmcycles % 12;
+        channel = chip->fmcycles % 6;
+        chip->fm_reg_a4 = 0;
+        chip->fm_reg_ac = 0;
+        chip->fm_fnum[channel] = 0;
+        chip->fm_block[channel] = 0;
+        chip->fm_fnum_3ch[channel] = 0;
+        chip->fm_block_3ch[channel] = 0;
+        chip->fm_connect[channel] = 0;
+        chip->fm_fb[channel] = 0;
+        chip->fm_pms[channel] = 0;
+        chip->fm_ams[channel] = 0;
+        chip->fm_pan_l[channel] = 1;
+        chip->fm_pan_r[channel] = 1;
+        chip->fm_ssg_eg[0][slot] = 0;
+        chip->fm_ssg_eg[1][slot] = 0;
+        chip->fm_dt[0][slot] = 0;
+        chip->fm_dt[1][slot] = 0;
+        chip->fm_multi[0][slot] = 0;
+        chip->fm_multi[1][slot] = 0;
+        chip->fm_tl[0][slot] = 0;
+        chip->fm_tl[1][slot] = 0;
+        chip->fm_ks[0][slot] = 0;
+        chip->fm_ks[1][slot] = 0;
+        chip->fm_ar[0][slot] = 0;
+        chip->fm_ar[1][slot] = 0;
+        chip->fm_am[0][slot] = 0;
+        chip->fm_am[1][slot] = 0;
+        chip->fm_dr[0][slot] = 0;
+        chip->fm_dr[1][slot] = 0;
+        chip->fm_sr[0][slot] = 0;
+        chip->fm_sr[1][slot] = 0;
+        chip->fm_rr[0][slot] = 0;
+        chip->fm_rr[1][slot] = 0;
+        chip->fm_sl[0][slot] = 0;
+        chip->fm_sl[1][slot] = 0;
     }
+}
+
+static void OPNB_FMCounter1(opnb_t *chip)
+{
+    if (chip->fmstate_l & 2)
+    {
+        chip->fmstate_h = (chip->fmstate_h + 1) & 7;
+        chip->fmstate_l = 0;
+    }
+    else
+    {
+        chip->fmstate_l++;
+    }
+    if (chip->ic2 & 8)
+    {
+        chip->fmstate_h = 0;
+        chip->fmstate_l = 0;
+    }
+}
+
+static void OPNB_FMCounter2(opnb_t* chip)
+{
+    chip->fmcycle[22] <<= 1;
+    chip->fmcycle[22] |= chip->fmstate_h == 7 && chip->fmstate_l == 1;
 }
 
 static void OPNB_FMClock1(opnb_t *chip)
@@ -398,6 +531,7 @@ static void OPNB_FMClock1(opnb_t *chip)
     chip->ic_latch |= chip->ic;
     OPNB_FMDoIO1(chip);
     OPNB_DoRegWrite(chip);
+    OPNB_FMCounter1(chip);
 }
 
 static void OPNB_FMClock2(opnb_t *chip)
@@ -405,7 +539,7 @@ static void OPNB_FMClock2(opnb_t *chip)
     chip->ic_latch <<= 1;
     OPNB_FMDoIO2(chip);
     chip->fmcycles = (chip->fmcycles + 1) % 24;
-    chip->fmstate = (chip->fmstate + 1) % 24;
+
 }
 
 static uint8_t OPNB_ReadBus(opnb_t *chip, uint32_t ssgread)
